@@ -33,7 +33,12 @@ cp "$SRC/icon_512.png"  "$ICONSET/icon_512x512.png"
 cp "$SRC/icon_1024.png" "$ICONSET/icon_512x512@2x.png"
 iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/AppIcon.icns"
 
-echo "▸ Signing (ad-hoc)…"
-codesign --force --deep --sign - "$APP" >/dev/null 2>&1
+if security find-identity -p codesigning 2>/dev/null | grep -q "Glide Dev"; then
+    echo "▸ Signing (Glide Dev — stable identity)…"
+    codesign --force --deep --sign "Glide Dev" "$APP" >/dev/null 2>&1
+else
+    echo "▸ Signing (ad-hoc — run scripts/setup-signing.sh for mic/speech prompts)…"
+    codesign --force --deep --sign - "$APP" >/dev/null 2>&1
+fi
 
 echo "✓ Built $APP"

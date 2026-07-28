@@ -47,12 +47,21 @@ glide/
 
 ## Build & run
 
-No Xcode required — builds with the Swift toolchain into an ad-hoc-signed bundle.
+No Xcode required — builds with the Swift toolchain into a signed `.app`.
 
 ```
-./scripts/run.sh          # build + launch
-./scripts/build.sh        # build only → build/Glide.app
+./scripts/setup-signing.sh   # one-time: create a stable self-signed identity
+./scripts/run.sh             # build + launch
+./scripts/build.sh           # build only → build/Glide.app
+swift run GlideCoreCheck     # run the core unit checks
 ```
 
-Scripts persist to `~/Library/Application Support/Glide/library.json`.
-When full Xcode is available, migrate JSON → SwiftData and add a proper `.xcodeproj`.
+`setup-signing.sh` creates a "Glide Dev" code-signing identity in a dedicated
+keychain. It's **required for voice features** — macOS TCC won't show the
+microphone/speech-recognition prompts for an ad-hoc-signed app. Without it the
+build still runs (ad-hoc), just without voice permissions.
+
+Scripts persist to `~/Library/Application Support/Glide/` (`library.json`,
+`settings.json`). When full Xcode is available, migrate JSON → SwiftData, swap
+the `SpeechAnalyzer` backend in behind the `Transcriber` protocol, and add a
+proper `.xcodeproj`.
