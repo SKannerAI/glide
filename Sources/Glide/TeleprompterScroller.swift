@@ -1,30 +1,12 @@
 import SwiftUI
-
-/// Unity-style critically-damped spring. Phase 2 drives `target` at a constant
-/// pace; Phase 3 (voice) will set `target` to the matched script position — the
-/// same smoothing serves both.
-func smoothDamp(current: Double, target: Double, velocity: inout Double,
-                smoothTime: Double, dt: Double) -> Double {
-    let smoothTime = max(0.0001, smoothTime)
-    let omega = 2 / smoothTime
-    let x = omega * dt
-    let expo = 1 / (1 + x + 0.48 * x * x + 0.235 * x * x * x)
-    let change = current - target
-    let temp = (velocity + omega * change) * dt
-    velocity = (velocity - omega * temp) * expo
-    var output = target + (change + temp) * expo
-    // Prevent overshoot past the target.
-    if (target - current > 0) == (output > target) {
-        output = target
-        velocity = (output - target) / dt
-    }
-    return output
-}
+import GlideCore
 
 @MainActor
 final class TeleprompterScroller: ObservableObject {
     @Published var offset: Double = 0
     @Published var isPlaying = false
+    /// When true, `target` is driven by voice progress instead of constant pace.
+    var voiceMode = false
 
     var contentHeight: Double = 0
     var viewportHeight: Double = 0
@@ -71,12 +53,19 @@ final class TeleprompterScroller: ObservableObject {
 
     func nudge(_ dy: Double) { manualScrub(to: offset + dy) }
 
+    /// Voice-follow: set the scroll target from a 0...1 script-progress fraction.
+    /// Ignored briefly after a manual scrub so the user's grab wins.
+    func setVoiceTarget(_ fraction: Double) {
+        guard voiceMode, Date() >= manualHoldUntil else { return }
+        target = clamp(fraction * maxOffset)
+    }
+
     private func tick() {
         let now = Date()
         let dt = min(0.05, now.timeIntervalSince(lastTick))
         lastTick = now
 
-        if isPlaying && now >= manualHoldUntil {
+        if isPlaying && !voiceMode && now >= manualHoldUntil {
             target = min(maxOffset, target + pointsPerSecond * dt)
         }
         offset = clamp(smoothDamp(current: offset, target: target,

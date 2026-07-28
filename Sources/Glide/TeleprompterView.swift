@@ -11,8 +11,15 @@ struct TeleprompterView: View {
 
     @EnvironmentObject var store: ScriptStore
     @StateObject private var scroller = TeleprompterScroller()
+    @StateObject private var voice: VoiceEngine
     @FocusState private var focused: Bool
     @State private var dragStartOffset: Double?
+
+    init(script: Script, onExit: @escaping () -> Void) {
+        self.script = script
+        self.onExit = onExit
+        _voice = StateObject(wrappedValue: VoiceEngine(scriptText: script.body))
+    }
 
     private var wordCount: Int {
         max(1, script.body.split(whereSeparator: { $0 == " " || $0 == "\n" || $0 == "\t" }).count)
@@ -50,11 +57,13 @@ struct TeleprompterView: View {
             controlsBar(s)
         }
         .overlay(alignment: .top) { readingGuide }
+        .overlay(alignment: .top) { permissionBanner }
         .onPreferenceChange(ContentHeightKey.self) { h in
             scroller.contentHeight = h
             recomputeSpeed(store.settings)
         }
         .onChange(of: store.settings) { _, s in recomputeSpeed(s) }
+        .onChange(of: voice.progress) { _, p in scroller.setVoiceTarget(p) }
         .focusable()
         .focusEffectDisabled()
         .focused($focused)
@@ -95,6 +104,16 @@ struct TeleprompterView: View {
         .allowsHitTesting(false)
     }
 
+    @ViewBuilder private var permissionBanner: some View {
+        if voice.permissionDenied {
+            Text("Enable Microphone & Speech Recognition in System Settings → Privacy")
+                .font(.callout)
+                .padding(.horizontal, 14).padding(.vertical, 8)
+                .background(.ultraThinMaterial, in: Capsule())
+                .padding(.top, 16)
+        }
+    }
+
     private func controlsBar(_ s: PromptSettings) -> some View {
         HStack(spacing: 16) {
             Button { scroller.togglePlay() } label: {
@@ -106,6 +125,20 @@ struct TeleprompterView: View {
                 Image(systemName: "backward.end.fill")
             }
             .help("Restart")
+
+            Divider().frame(height: 20)
+
+            Button {
+                Task {
+                    await voice.toggle()
+                    scroller.voiceMode = voice.isListening
+                    if voice.isListening { scroller.isPlaying = true }
+                }
+            } label: {
+                Image(systemName: voice.isListening ? "mic.fill" : "mic")
+                    .foregroundStyle(voice.isListening ? Color(hex: "#FF5A00") : Color.primary)
+            }
+            .help("Voice-activated scrolling")
 
             Divider().frame(height: 20)
 
