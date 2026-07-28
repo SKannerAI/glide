@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleName</key>
+    <string>Glide</string>
+    <key>CFBundleDisplayName</key>
+    <string>Glide</string>
+    <key>CFBundleIdentifier</key>
+    <string>com.sandeepkanparthy.glide</string>
+    <key>CFBundleExecutable</key>
+    <string>Glide</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>0.1.0</string>
+    <key>CFBundleVersion</key>
+    <string>1</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>14.0</string>
+    <key>NSHighResolutionCapable</key>
+    <true/>
+    <key>NSPrincipalClass</key>
+    <string>NSApplication</string>
+    <key>NSHumanReadableCopyright</key>
+    <string>© 2026 Sandeep Kanparthy</string>
+    <!-- Staged for Phase 3 (voice-activated scrolling). -->
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Glide listens to your voice to scroll your script as you read.</string>
+    <key>NSSpeechRecognitionUsageDescription</key>
+    <string>Glide transcribes your speech on-device to follow your place in the script.</string>
+</dict>
+</plist>
