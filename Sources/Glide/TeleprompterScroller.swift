@@ -49,6 +49,7 @@ final class TeleprompterScroller: ObservableObject {
         target = clamped
         velocity = 0
         manualHoldUntil = Date().addingTimeInterval(2.0)
+        GlideLog.log("manualScrub -> \(Int(clamped)) (req \(Int(newOffset)), maxOff \(Int(maxOffset)))")
     }
 
     func nudge(_ dy: Double) { manualScrub(to: offset + dy) }
@@ -58,6 +59,7 @@ final class TeleprompterScroller: ObservableObject {
     func setVoiceTarget(_ fraction: Double) {
         guard voiceMode, Date() >= manualHoldUntil else { return }
         target = clamp(fraction * maxOffset)
+        GlideLog.log("setVoiceTarget frac=\(String(format: "%.2f", fraction)) maxOff=\(Int(maxOffset)) target=\(Int(target)) contentH=\(Int(contentHeight)) vp=\(Int(viewportHeight))")
     }
 
     private func tick() {

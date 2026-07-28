@@ -1,9 +1,5 @@
 import SwiftUI
-
-private struct ContentHeightKey: PreferenceKey {
-    static var defaultValue: Double = 0
-    static func reduce(value: inout Double, nextValue: () -> Double) { value = nextValue() }
-}
+import AppKit
 
 struct TeleprompterView: View {
     let script: Script
@@ -12,8 +8,8 @@ struct TeleprompterView: View {
     @EnvironmentObject var store: ScriptStore
     @StateObject private var scroller = TeleprompterScroller()
     @StateObject private var voice: VoiceEngine
-    @FocusState private var focused: Bool
     @State private var dragStartOffset: Double?
+    @State private var eventMonitor: Any?
 
     init(script: Script, onExit: @escaping () -> Void) {
         self.script = script
@@ -58,21 +54,41 @@ struct TeleprompterView: View {
         }
         .overlay(alignment: .top) { readingGuide }
         .overlay(alignment: .top) { permissionBanner }
-        .onPreferenceChange(ContentHeightKey.self) { h in
-            scroller.contentHeight = h
-            recomputeSpeed(store.settings)
-        }
         .onChange(of: store.settings) { _, s in recomputeSpeed(s) }
         .onChange(of: voice.progress) { _, p in scroller.setVoiceTarget(p) }
-        .focusable()
-        .focusEffectDisabled()
-        .focused($focused)
-        .onAppear { focused = true }
-        .onKeyPress(.space) { scroller.togglePlay(); return .handled }
-        .onKeyPress(.upArrow) { scroller.nudge(-80); return .handled }
-        .onKeyPress(.downArrow) { scroller.nudge(80); return .handled }
-        .onExitCommand { exit() }
-        .onDisappear { scroller.stop() }
+        .onAppear { installEventMonitor() }
+        .onDisappear {
+            removeEventMonitor()
+            voice.stop()
+            scroller.stop()
+        }
+    }
+
+    // Scroll wheel / trackpad + keys, via an AppKit monitor (reliable regardless
+    // of SwiftUI focus). Space = play/pause, ↑/↓ = nudge, Esc = exit.
+    private func installEventMonitor() {
+        guard eventMonitor == nil else { return }
+        eventMonitor = NSEvent.addLocalMonitorForEvents(matching: [.scrollWheel, .keyDown]) { event in
+            switch event.type {
+            case .scrollWheel:
+                scroller.nudge(-event.scrollingDeltaY)
+                return nil
+            case .keyDown:
+                switch event.keyCode {
+                case 126: scroller.nudge(-80); return nil   // up arrow
+                case 125: scroller.nudge(80); return nil    // down arrow
+                case 49:  scroller.togglePlay(); return nil // space
+                case 53:  exit(); return nil                // esc
+                default:  return event
+                }
+            default:
+                return event
+            }
+        }
+    }
+
+    private func removeEventMonitor() {
+        if let m = eventMonitor { NSEvent.removeMonitor(m); eventMonitor = nil }
     }
 
     // MARK: - Pieces
@@ -87,11 +103,20 @@ struct TeleprompterView: View {
             .padding(.horizontal, s.horizontalPadding)
             .padding(.top, viewport * 0.42)
             .padding(.bottom, viewport * 0.6)
+            .fixedSize(horizontal: false, vertical: true)
             .background(
                 GeometryReader { p in
-                    Color.clear.preference(key: ContentHeightKey.self, value: p.size.height)
+                    Color.clear
+                        .onAppear { setContentHeight(p.size.height) }
+                        .onChange(of: p.size.height) { _, h in setContentHeight(h) }
                 }
             )
+    }
+
+    private func setContentHeight(_ h: Double) {
+        scroller.contentHeight = h
+        recomputeSpeed(store.settings)
+        GlideLog.log("contentHeight=\(Int(h)) vp=\(Int(scroller.viewportHeight)) maxOff=\(Int(max(0, h - scroller.viewportHeight)))")
     }
 
     private var readingGuide: some View {

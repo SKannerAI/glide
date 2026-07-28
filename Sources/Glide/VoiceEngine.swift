@@ -26,14 +26,18 @@ final class VoiceEngine: ObservableObject {
     }
 
     func start() async {
+        GlideLog.reset()
         let ok = await transcriber.requestAuthorization()
+        GlideLog.log("voice.start authorized=\(ok)")
         guard ok else { permissionDenied = true; return }
         permissionDenied = false
         do {
             try transcriber.start()
             isListening = true
+            GlideLog.log("voice listening; script tokens=\(aligner.count)")
         } catch {
             isListening = false
+            GlideLog.log("transcriber.start threw: \(error)")
         }
     }
 
@@ -45,5 +49,6 @@ final class VoiceEngine: ObservableObject {
     private func ingest(_ text: String) {
         aligner.advance(transcript: ScriptTokenizer.tokenize(text))
         progress = aligner.progress
+        GlideLog.log("ingest '…\(text.suffix(40))' idx=\(aligner.index)/\(aligner.count) prog=\(String(format: "%.2f", progress))")
     }
 }

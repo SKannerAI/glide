@@ -23,6 +23,7 @@ final class SFSpeechTranscriber: NSObject, Transcriber {
     private var request: SFSpeechAudioBufferRecognitionRequest?
     private var task: SFSpeechRecognitionTask?
     private var running = false
+    private var bufferCount = 0
 
     func requestAuthorization() async -> Bool {
         let speech = await withCheckedContinuation { cont in
@@ -33,7 +34,11 @@ final class SFSpeechTranscriber: NSObject, Transcriber {
     }
 
     func start() throws {
-        guard let recognizer, recognizer.isAvailable else { throw TranscriberError.unavailable }
+        guard let recognizer, recognizer.isAvailable else {
+            GlideLog.log("transcriber: recognizer unavailable (nil=\(recognizer == nil))")
+            throw TranscriberError.unavailable
+        }
+        GlideLog.log("transcriber.start onDevice=\(recognizer.supportsOnDeviceRecognition)")
         running = true
         try startTask()
     }
@@ -47,17 +52,25 @@ final class SFSpeechTranscriber: NSObject, Transcriber {
 
         let input = engine.inputNode
         let format = input.outputFormat(forBus: 0)
+        bufferCount = 0
         input.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in
-            self?.request?.append(buffer)
+            guard let self else { return }
+            self.request?.append(buffer)
+            self.bufferCount += 1
+            if self.bufferCount % 40 == 0 {
+                GlideLog.log("tap buffers=\(self.bufferCount) rms=\(String(format: "%.4f", Self.rms(buffer)))")
+            }
         }
         engine.prepare()
         try engine.start()
+        GlideLog.log("audio engine started; out=\(Int(format.sampleRate))Hz/\(format.channelCount)ch in=\(Int(input.inputFormat(forBus: 0).sampleRate))Hz")
 
         task = recognizer.recognitionTask(with: req) { [weak self] result, error in
             guard let self else { return }
             if let result {
                 self.onTranscript?(result.bestTranscription.formattedString)
             }
+            if let error { GlideLog.log("recog error: \(error.localizedDescription)") }
             // The framework stops tasks after ~1 minute; restart to keep going.
             if error != nil || (result?.isFinal ?? false) {
                 self.restart()
@@ -76,6 +89,23 @@ final class SFSpeechTranscriber: NSObject, Transcriber {
         teardownAudio()
         task?.cancel()
         task = nil
+    }
+
+    /// Rough signal level of a capture buffer (handles float or int16).
+    static func rms(_ buffer: AVAudioPCMBuffer) -> Float {
+        let n = Int(buffer.frameLength)
+        guard n > 0 else { return 0 }
+        if let ch = buffer.floatChannelData?[0] {
+            var sum: Float = 0
+            for i in 0..<n { sum += ch[i] * ch[i] }
+            return (sum / Float(n)).squareRoot()
+        }
+        if let ch = buffer.int16ChannelData?[0] {
+            var sum: Float = 0
+            for i in 0..<n { let s = Float(ch[i]) / 32768; sum += s * s }
+            return (sum / Float(n)).squareRoot()
+        }
+        return -1  // unknown format
     }
 
     private func teardownAudio() {
