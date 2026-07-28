@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ContentView: View {
     @EnvironmentObject var store: ScriptStore
+    @State private var presenting: Script?
 
     var body: some View {
         NavigationSplitView {
@@ -10,7 +11,7 @@ struct ContentView: View {
         } detail: {
             if let id = store.selectedScriptID,
                store.scripts.contains(where: { $0.id == id }) {
-                EditorView(script: store.scriptBinding(id))
+                EditorView(script: store.scriptBinding(id)) { presenting = $0 }
                     .id(id)
             } else {
                 ContentUnavailableView(
@@ -20,5 +21,12 @@ struct ContentView: View {
                 )
             }
         }
+        .overlay {
+            if let script = presenting {
+                TeleprompterView(script: script) { presenting = nil }
+                    .transition(.opacity)
+            }
+        }
+        .animation(.easeInOut(duration: 0.2), value: presenting)
     }
 }

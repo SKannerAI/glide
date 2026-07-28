@@ -7,9 +7,14 @@ final class ScriptStore: ObservableObject {
     @Published var folders: [Folder] = []
     @Published var selectedScriptID: UUID?
     @Published var searchText: String = ""
+    @Published var settings = PromptSettings() {
+        didSet { scheduleSettingsSave() }
+    }
 
     private let fileURL: URL
+    private let settingsURL: URL
     private var saveTask: Task<Void, Never>?
+    private var settingsSaveTask: Task<Void, Never>?
 
     init() {
         let dir = FileManager.default
@@ -17,12 +22,14 @@ final class ScriptStore: ObservableObject {
             .appendingPathComponent("Glide", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         fileURL = dir.appendingPathComponent("library.json")
+        settingsURL = dir.appendingPathComponent("settings.json")
 
         if FileManager.default.fileExists(atPath: fileURL.path) {
             load()
         } else {
             seedWelcome()
         }
+        loadSettings()
         if selectedScriptID == nil {
             selectedScriptID = filteredScripts.first?.id
         }
@@ -117,6 +124,24 @@ final class ScriptStore: ObservableObject {
             try? await Task.sleep(nanoseconds: 400_000_000)
             if Task.isCancelled { return }
             guard let data = try? Self.encoder.encode(lib) else { return }
+            try? data.write(to: url, options: .atomic)
+        }
+    }
+
+    private func loadSettings() {
+        guard let data = try? Data(contentsOf: settingsURL),
+              let s = try? Self.decoder.decode(PromptSettings.self, from: data) else { return }
+        settings = s
+    }
+
+    private func scheduleSettingsSave() {
+        settingsSaveTask?.cancel()
+        let s = settings
+        let url = settingsURL
+        settingsSaveTask = Task {
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            if Task.isCancelled { return }
+            guard let data = try? Self.encoder.encode(s) else { return }
             try? data.write(to: url, options: .atomic)
         }
     }

@@ -2,6 +2,7 @@ import SwiftUI
 
 struct EditorView: View {
     @Binding var script: Script
+    var onPlay: (Script) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -24,6 +25,15 @@ struct EditorView: View {
                 Text("Edited \(script.updatedAt.formatted(date: .abbreviated, time: .shortened))")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+            }
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    onPlay(script)
+                } label: {
+                    Label("Teleprompter", systemImage: "play.fill")
+                }
+                .help("Start teleprompter")
+                .keyboardShortcut("p", modifiers: .command)
             }
         }
     }
