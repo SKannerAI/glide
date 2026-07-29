@@ -6,15 +6,18 @@ protocol Transcriber: AnyObject {
     var onTranscript: ((String) -> Void)? { get set }
     func requestAuthorization() async -> Bool
     func start() throws
+    func restartRecognition()
     func stop()
 }
 
 enum TranscriberError: Error { case unavailable }
 
-/// `SFSpeechRecognizer`-backed transcriber. On-device when supported, and it
-/// auto-restarts the recognition task to work around the framework's ~1-minute
-/// per-task limit. The `Transcriber` protocol lets a `SpeechAnalyzer` (macOS 26)
-/// or WhisperKit backend drop in later without touching the rest of the app.
+/// `SFSpeechRecognizer`-backed transcriber. On-device when supported. The audio
+/// engine + tap run continuously; recognition requests are swapped in as needed
+/// (for the ~1-minute task cap and for restart-from-top), which avoids engine
+/// churn. Each task carries an `epoch` so stale callbacks can't tear down a
+/// newer task. The `Transcriber` protocol lets a `SpeechAnalyzer`/WhisperKit
+/// backend drop in later.
 final class SFSpeechTranscriber: NSObject, Transcriber {
     var onTranscript: ((String) -> Void)?
 
@@ -23,6 +26,7 @@ final class SFSpeechTranscriber: NSObject, Transcriber {
     private var request: SFSpeechAudioBufferRecognitionRequest?
     private var task: SFSpeechRecognitionTask?
     private var running = false
+    private var epoch = 0
     private var bufferCount = 0
 
     func requestAuthorization() async -> Bool {
@@ -34,84 +38,83 @@ final class SFSpeechTranscriber: NSObject, Transcriber {
     }
 
     func start() throws {
-        guard let recognizer, recognizer.isAvailable else {
-            GlideLog.log("transcriber: recognizer unavailable (nil=\(recognizer == nil))")
+        guard recognizer?.isAvailable == true else {
             throw TranscriberError.unavailable
         }
-        GlideLog.log("transcriber.start onDevice=\(recognizer.supportsOnDeviceRecognition)")
         running = true
-        try startTask()
+        bufferCount = 0
+        try startEngine()
+        startRecognition()
+        scheduleColdStartKick()
     }
 
-    private func startTask() throws {
-        guard let recognizer else { throw TranscriberError.unavailable }
+    /// Install the tap, then start the engine. The tap is always in place before
+    /// the engine starts — starting a tapless engine throws in `prepare()`.
+    private func startEngine() throws {
+        let input = engine.inputNode
+        let format = input.outputFormat(forBus: 0)
+        input.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in
+            guard let self else { return }
+            self.request?.append(buffer)
+            self.bufferCount += 1
+        }
+        engine.prepare()
+        try engine.start()
+    }
+
+    /// On a cold launch the first engine start sometimes delivers no audio. If
+    /// nothing arrives shortly, restart the engine once (tap re-installed first)
+    /// — the same recovery a manual mic re-toggle performs, done automatically.
+    private func scheduleColdStartKick() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in
+            guard let self, self.running, self.bufferCount == 0 else { return }
+            self.engine.inputNode.removeTap(onBus: 0)
+            if self.engine.isRunning { self.engine.stop() }
+            try? self.startEngine()
+        }
+    }
+
+    /// Begin a fresh recognition request/task, keeping the engine + tap alive.
+    /// Also clears the accumulated transcript.
+    private func startRecognition() {
+        guard running, let recognizer else { return }
+        epoch += 1
+        let myEpoch = epoch
+        task?.cancel()
+
         let req = SFSpeechAudioBufferRecognitionRequest()
         req.shouldReportPartialResults = true
         req.requiresOnDeviceRecognition = recognizer.supportsOnDeviceRecognition
         request = req
 
-        let input = engine.inputNode
-        let format = input.outputFormat(forBus: 0)
-        bufferCount = 0
-        input.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in
-            guard let self else { return }
-            self.request?.append(buffer)
-            self.bufferCount += 1
-            if self.bufferCount % 40 == 0 {
-                GlideLog.log("tap buffers=\(self.bufferCount) rms=\(String(format: "%.4f", Self.rms(buffer)))")
-            }
-        }
-        engine.prepare()
-        try engine.start()
-        GlideLog.log("audio engine started; out=\(Int(format.sampleRate))Hz/\(format.channelCount)ch in=\(Int(input.inputFormat(forBus: 0).sampleRate))Hz")
-
         task = recognizer.recognitionTask(with: req) { [weak self] result, error in
             guard let self else { return }
-            if let result {
-                self.onTranscript?(result.bestTranscription.formattedString)
-            }
-            if let error { GlideLog.log("recog error: \(error.localizedDescription)") }
-            // The framework stops tasks after ~1 minute; restart to keep going.
-            if error != nil || (result?.isFinal ?? false) {
-                self.restart()
+            DispatchQueue.main.async {
+                guard self.epoch == myEpoch else { return }  // ignore stale callbacks
+                if let result { self.onTranscript?(result.bestTranscription.formattedString) }
+                if error != nil || result?.isFinal == true {
+                    self.startRecognition()  // ~1-min cap or end-of-utterance
+                }
             }
         }
     }
 
-    private func restart() {
+    /// Restart from the top: swap in a fresh request (clears transcript) without
+    /// disturbing the running audio engine.
+    func restartRecognition() {
         guard running else { return }
-        teardownAudio()
-        try? startTask()
+        request?.endAudio()
+        startRecognition()
     }
 
     func stop() {
         running = false
-        teardownAudio()
-        task?.cancel()
-        task = nil
-    }
-
-    /// Rough signal level of a capture buffer (handles float or int16).
-    static func rms(_ buffer: AVAudioPCMBuffer) -> Float {
-        let n = Int(buffer.frameLength)
-        guard n > 0 else { return 0 }
-        if let ch = buffer.floatChannelData?[0] {
-            var sum: Float = 0
-            for i in 0..<n { sum += ch[i] * ch[i] }
-            return (sum / Float(n)).squareRoot()
-        }
-        if let ch = buffer.int16ChannelData?[0] {
-            var sum: Float = 0
-            for i in 0..<n { let s = Float(ch[i]) / 32768; sum += s * s }
-            return (sum / Float(n)).squareRoot()
-        }
-        return -1  // unknown format
-    }
-
-    private func teardownAudio() {
+        epoch += 1  // invalidate any in-flight callbacks
         engine.inputNode.removeTap(onBus: 0)
         if engine.isRunning { engine.stop() }
         request?.endAudio()
+        task?.cancel()
+        task = nil
         request = nil
     }
 }

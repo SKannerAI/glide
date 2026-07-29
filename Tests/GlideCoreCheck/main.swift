@@ -45,6 +45,16 @@ do {
     checkEqual(a.index, 0, "garbage speech doesn't move")
 }
 do {
+    // "manager" repeats at indices 1 and 8.
+    let rep = "the manager approved the plan then later the manager rejected the appeal after review"
+    let a = VoiceAligner(text: rep)
+    a.advance(transcript: ["the", "manager", "approved"])
+    check(a.index <= 5, "repeated word: stays at first occurrence (idx \(a.index))")
+    a.advance(transcript: ["the", "manager", "approved", "the", "plan", "then",
+                           "later", "the", "manager", "rejected"])
+    check(a.index >= 8, "repeated word: advances to 2nd occurrence when read through (idx \(a.index))")
+}
+do {
     let a = VoiceAligner(text: scriptText)
     a.advance(transcript: Array(tokens.prefix(4)))
     let first = a.index

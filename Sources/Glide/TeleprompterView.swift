@@ -11,6 +11,16 @@ struct TeleprompterView: View {
     @State private var dragStartOffset: Double?
     @State private var eventMonitor: Any?
 
+    // Reading guide sits this far down the viewport; top padding matches it so a
+    // word at progress p lands on the guide. Bottom padding lets the last line
+    // scroll up to the guide.
+    private static let guideFraction = 0.42
+    private static let bottomPadFraction = 0.6
+
+    // Control tints: orange when active (playing / listening), soft white otherwise.
+    private static let activeTint = Color(hex: "#FF5A00")
+    private static let inactiveTint = Color.white.opacity(0.85)
+
     init(script: Script, onExit: @escaping () -> Void) {
         self.script = script
         self.onExit = onExit
@@ -55,7 +65,13 @@ struct TeleprompterView: View {
         .overlay(alignment: .top) { readingGuide }
         .overlay(alignment: .top) { permissionBanner }
         .onChange(of: store.settings) { _, s in recomputeSpeed(s) }
-        .onChange(of: voice.progress) { _, p in scroller.setVoiceTarget(p) }
+        .onChange(of: voice.progress) { _, p in
+            // Map progress onto the true text height (excludes top/bottom padding)
+            // so the spoken word lands on the reading guide instead of overshooting.
+            let vp = scroller.viewportHeight
+            let textHeight = max(1, scroller.contentHeight - vp * (Self.guideFraction + Self.bottomPadFraction))
+            scroller.setVoiceTargetOffset(p * textHeight)
+        }
         .onAppear { installEventMonitor() }
         .onDisappear {
             removeEventMonitor()
@@ -101,8 +117,8 @@ struct TeleprompterView: View {
             .multilineTextAlignment(s.alignment.textAlignment)
             .frame(maxWidth: .infinity, alignment: s.alignment.frameAlignment)
             .padding(.horizontal, s.horizontalPadding)
-            .padding(.top, viewport * 0.42)
-            .padding(.bottom, viewport * 0.6)
+            .padding(.top, viewport * Self.guideFraction)
+            .padding(.bottom, viewport * Self.bottomPadFraction)
             .fixedSize(horizontal: false, vertical: true)
             .background(
                 GeometryReader { p in
@@ -116,7 +132,6 @@ struct TeleprompterView: View {
     private func setContentHeight(_ h: Double) {
         scroller.contentHeight = h
         recomputeSpeed(store.settings)
-        GlideLog.log("contentHeight=\(Int(h)) vp=\(Int(scroller.viewportHeight)) maxOff=\(Int(max(0, h - scroller.viewportHeight)))")
     }
 
     private var readingGuide: some View {
@@ -124,7 +139,7 @@ struct TeleprompterView: View {
             Rectangle()
                 .fill(Color(hex: "#FF5A00").opacity(0.55))
                 .frame(height: 2)
-                .position(x: geo.size.width / 2, y: geo.size.height * 0.42)
+                .position(x: geo.size.width / 2, y: geo.size.height * Self.guideFraction)
         }
         .allowsHitTesting(false)
     }
@@ -143,13 +158,20 @@ struct TeleprompterView: View {
         HStack(spacing: 16) {
             Button { scroller.togglePlay() } label: {
                 Image(systemName: scroller.isPlaying ? "pause.fill" : "play.fill")
+                    .foregroundStyle(scroller.isPlaying ? Self.activeTint : Self.inactiveTint)
             }
+            .buttonStyle(.plain)
             .help("Play / pause (Space)")
 
-            Button { scroller.restart() } label: {
+            Button {
+                scroller.restart()
+                voice.reset()
+            } label: {
                 Image(systemName: "backward.end.fill")
+                    .foregroundStyle(Self.inactiveTint)
             }
-            .help("Restart")
+            .buttonStyle(.plain)
+            .help("Restart from top")
 
             Divider().frame(height: 20)
 
@@ -161,8 +183,9 @@ struct TeleprompterView: View {
                 }
             } label: {
                 Image(systemName: voice.isListening ? "mic.fill" : "mic")
-                    .foregroundStyle(voice.isListening ? Color(hex: "#FF5A00") : Color.primary)
+                    .foregroundStyle(voice.isListening ? Self.activeTint : Self.inactiveTint)
             }
+            .buttonStyle(.plain)
             .help("Voice-activated scrolling")
 
             Divider().frame(height: 20)
