@@ -215,8 +215,14 @@ struct TeleprompterView: View {
 
             Spacer()
 
-            Button("Exit") { exit() }
-                .keyboardShortcut(.cancelAction)
+            Button { exit() } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.title3)
+                    .foregroundStyle(.red)
+            }
+            .buttonStyle(.plain)
+            .keyboardShortcut(.cancelAction)
+            .help("Exit teleprompter")
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 12)

@@ -19,6 +19,8 @@ struct PromptSettings: Codable, Equatable {
     var textColorHex: String = "#FFFFFF"
     var backgroundHex: String = "#0A0A0A"
     var alignment: TextAlignmentOption = .leading
+    var overlayOpacity: Double = 0.9
+    var overlayAlwaysOnTop: Bool = true
 }
 
 extension Color {
