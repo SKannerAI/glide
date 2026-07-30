@@ -14,7 +14,7 @@ final class VoiceEngine: ObservableObject {
     private let aligner: VoiceAligner
 
     init(scriptText: String) {
-        transcriber = SFSpeechTranscriber()
+        transcriber = makeTranscriber()
         aligner = VoiceAligner(text: scriptText)
         transcriber.onTranscript = { [weak self] text in
             Task { @MainActor in self?.ingest(text) }
