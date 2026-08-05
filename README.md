@@ -10,7 +10,7 @@ A native macOS teleprompter with **voice-activated scrolling** — the script fo
 | **Icon** | Playhead — marker locked to the active reading line (orange & black) |
 | **Platform** | macOS, min deployment **14.0 (Sonoma)** |
 | **Stack** | SwiftUI + AppKit (`NSPanel` overlay); JSON persistence (SwiftData deferred — its macro needs full Xcode) |
-| **Speech** | `Transcriber` protocol: **SpeechAnalyzer** (macOS 26+) with **WhisperKit** fallback (macOS 14–15) |
+| **Speech** | `Transcriber` protocol: **SpeechAnalyzer** (macOS 26+) with **SFSpeechRecognizer** fallback (macOS 14–15), selected at runtime |
 | **Distribution** | Developer ID / notarized (not App Store to start) |
 
 Screen-share hiding is intentionally **out of scope** — it's unreliable and unsupported on modern macOS (ScreenCaptureKit ignores `NSWindow.sharingType` on 15.4+).
@@ -47,21 +47,39 @@ glide/
 
 ## Build & run
 
-No Xcode required — builds with the Swift toolchain into a signed `.app`.
+No Xcode required — Glide builds with the Swift toolchain into a signed `.app`.
+
+**First time on a machine:**
 
 ```
-./scripts/setup-signing.sh   # one-time: create a stable self-signed identity
+git clone <repo> && cd glide
+./scripts/setup-signing.sh   # one-time: create the local "Glide Dev" signing identity
+./scripts/run.sh             # build + launch
+```
+
+**Everyday:**
+
+```
 ./scripts/run.sh             # build + launch
 ./scripts/build.sh           # build only → build/Glide.app
 swift run GlideCoreCheck     # run the core unit checks
 ```
 
-`setup-signing.sh` creates a "Glide Dev" code-signing identity in a dedicated
-keychain. It's **required for voice features** — macOS TCC won't show the
-microphone/speech-recognition prompts for an ad-hoc-signed app. Without it the
-build still runs (ad-hoc), just without voice permissions.
+### Signing
 
-Scripts persist to `~/Library/Application Support/Glide/` (`library.json`,
-`settings.json`). When full Xcode is available, migrate JSON → SwiftData, swap
-the `SpeechAnalyzer` backend in behind the `Transcriber` protocol, and add a
-proper `.xcodeproj`.
+`setup-signing.sh` creates a self-signed **"Glide Dev"** code-signing identity in a
+dedicated keychain (`~/Library/Keychains/glide-signing.keychain-db`, with a fixed
+internal password baked into the script — nothing for you to remember or type).
+This is **required for voice features**: macOS won't show the microphone /
+speech-recognition permission prompts for an ad-hoc-signed app.
+
+- It's **per machine** — run it once on each Mac you build on. Each gets its own
+  local cert; the keychain/cert are never committed to git.
+- Skip it and `build.sh` **falls back to ad-hoc signing** automatically — the app
+  still builds and runs, just without reliable voice permissions.
+- `build.sh` unlocks the signing keychain before signing, so `codesign` never
+  blocks on a keychain prompt (even in a fresh login session).
+
+Data persists to `~/Library/Application Support/Glide/` (`library.json`,
+`settings.json`). When full Xcode is available, migrate JSON → SwiftData and add a
+proper `.xcodeproj` for notarized distribution.

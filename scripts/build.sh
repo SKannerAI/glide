@@ -34,6 +34,8 @@ cp "$SRC/icon_1024.png" "$ICONSET/icon_512x512@2x.png"
 iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/AppIcon.icns"
 
 if security find-identity -p codesigning 2>/dev/null | grep -q "Glide Dev"; then
+    # Unlock the dedicated signing keychain so codesign never blocks on a prompt.
+    security unlock-keychain -p "glide-local-signing" "$HOME/Library/Keychains/glide-signing.keychain-db" 2>/dev/null || true
     echo "▸ Signing (Glide Dev — stable identity)…"
     codesign --force --deep --sign "Glide Dev" "$APP" >/dev/null 2>&1
 else
